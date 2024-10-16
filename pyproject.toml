@@ -1,0 +1,27 @@
+[project]
+name = "nonebot-plugin-jtj"
+version = "0.1.0"
+description = "本地机厅管理人数上报的 NoneBot 插件"
+readme = "README.md"
+license = { text = "MIT" }
+
+authors = [
+    { name = "QiYork", email = "1309946582@qq.com" }
+]
+
+classifiers = [
+    "Framework :: NoneBot",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+
+requires-python = ">=3.8"
+dependencies = [
+    "nonebot2",
+    "nonebot-adapter-onebot",
+    "nonebot-plugin-apscheduler",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Onimaimai/nonebot-plugin-jtj"

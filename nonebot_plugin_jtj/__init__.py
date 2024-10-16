@@ -12,7 +12,7 @@ from nonebot.rule import to_me
 
 SUPERUSERS = get_driver().config.superusers
 __plugin_meta__ = PluginMetadata(
-    name="机厅 help",
+    name="机厅",
     description="本地机厅管理人数上报",
     usage="发送 机厅 help 查看帮助",
     type="application",

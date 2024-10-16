@@ -96,7 +96,7 @@ async def handle_reset(bot: Bot, event: Event):
     
     # 检查用户是否是群主、管理员或超级用户
     member = await bot.get_group_member_info(group_id=group_id, user_id=user_id)
-    if member['role'] not in ['owner', 'admin'] and user_id not in SUPERUSERS:
+    if member['role'] not in ['Onimaimai', 'admin'] and user_id not in SUPERUSERS:
         await reset_handler.send("您没有权限执行此操作")
         return
 

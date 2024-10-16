@@ -7,6 +7,7 @@ from datetime import datetime
 from nonebot import on_message
 from nonebot import on_command
 from nonebot import get_driver
+from nonebot.plugin import PluginMetadata
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot, Event, MessageEvent, PrivateMessageEvent, MessageSegment
 from nonebot.rule import to_me
 

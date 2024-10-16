@@ -90,4 +90,5 @@ _✨ NoneBot 机厅管理上报插件 ✨_
 | 重置机厅 | 主人 | 清零所有机厅人数 |
 | 更新机厅 | 主人 | 手动同步机厅变更 |
 ### 效果图
+![543f7ff7f37df7ff22c865e28e234882_720](https://github.com/user-attachments/assets/9e499a62-7f76-40c6-800d-66dcaf310ad8)
 

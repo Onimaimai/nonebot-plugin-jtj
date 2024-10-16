@@ -34,19 +34,27 @@ for file_path in [ARCADE_DATA_FILE, STATE_FILE]:
     if not os.path.exists(file_path):
         with open(file_path, 'w') as f:
             f.write('{}')
-
+            
 
 def load_arcade_data():
-    with open(ARCADE_DATA_FILE, 'r', encoding='utf-8') as json_file:
-        return json.load(json_file)
-
-def get_all_regions():
-    """获取所有存在的地区列表"""
-    return list(set([arcade["region"] for arcade in EMPTY_STATE]))
-
+    """加载 arcade_data.json 文件中的数据"""
+    global current_arcade_data  # 使用全局变量存储当前数据
+    try:
+        with open(ARCADE_DATA_FILE, 'r', encoding='utf-8') as file:
+            current_arcade_data = json.load(file)
+    except FileNotFoundError:
+        current_arcade_data = []
+    return current_arcade_data
+      
+# 用于存储最新加载的机厅数据
 EMPTY_STATE = load_arcade_data()
 
 
+def get_all_regions():
+    """获取所有存在的地区列表"""
+    return list(set([arcade["region"] for arcade in current_arcade_data]))
+
+  
 help_handler = on_command("机厅 help", priority=10, block=True)
 
 @help_handler.handle()
@@ -97,7 +105,7 @@ async def handle_reset(bot: Bot, event: Event):
     
     # 检查用户是否是群主、管理员或超级用户
     member = await bot.get_group_member_info(group_id=group_id, user_id=user_id)
-    if member['role'] not in ['Onimaimai', 'admin'] and user_id not in SUPERUSERS:
+    if member['role'] not in ['owner', 'admin'] and user_id not in SUPERUSERS:
         await reset_handler.send("您没有权限执行此操作")
         return
 
@@ -111,7 +119,7 @@ async def handle_reset(bot: Bot, event: Event):
     
     # 调用重置函数
     reset_state(region_name)
-    
+    sync_arcade_data()
     await reset_handler.send("本群机厅人数已重置")
             
     
@@ -125,7 +133,7 @@ async def handle_resetall(bot: Bot, event: Event):
     
     # 调用重置函数
     reset_all_states()
-    
+    sync_arcade_data()
     await resetall_handler.send("所有机厅人数已重置")
     
             
@@ -148,6 +156,7 @@ def reset_state(region_name):
     with open(STATE_FILE, 'w', encoding='utf-8') as file:
         json.dump(updated_data, file, ensure_ascii=False, indent=2)
 
+    sync_arcade_data()
     print("机厅人数已重置")
 
 
@@ -169,6 +178,7 @@ def reset_all_states():
     with open(STATE_FILE, 'w', encoding='utf-8') as file:
         json.dump(updated_data, file, ensure_ascii=False, indent=2)
 
+    sync_arcade_data()
     print("所有地区的机厅人数已重置")
 
     
@@ -291,6 +301,7 @@ def save_state(arcades):
         
 # 将新的机厅数据与已有的人数数据合并，并删除不在 arcade_data.json 中的机厅
 def sync_arcade_data():
+    """将新的机厅数据与已有的人数数据合并，并删除不在 arcade_data.json 中的机厅"""
     # 读取当前 state.json 的数据
     current_data = read_state()
 
@@ -336,7 +347,11 @@ def sync_arcade_data():
         json.dump(updated_data, file, ensure_ascii=False, indent=2)
 
     print("同步成功，已将机厅数据更新到 state.json")
-    
+
+    # 重新加载最新的 arcade_data.json 数据，确保新机厅和地区立即生效
+    load_arcade_data()
+    print("缓存已更新，新的机厅和地区已生效")
+
     
 # 定义同步指令
 sync_handler = on_command("更新机厅", priority=10, block=True)
@@ -488,13 +503,12 @@ async def handle_add_arcade(bot: Bot, event: GroupMessageEvent):
         await add_arcade_handler.send(f"机厅：{primary_keyword}\n地区：{region}\n已存在！")
         return
 
-    # 添加新机厅
-    arcade_data.append(new_arcade)
-
-    # 将更新后的数据写回文件
+    # 添加新机厅并保存到文件
+    current_arcade_data.append(new_arcade)
     with open(ARCADE_DATA_FILE, 'w', encoding='utf-8') as file:
-        json.dump(arcade_data, file, ensure_ascii=False, indent=2)
+        json.dump(current_arcade_data, file, ensure_ascii=False, indent=2)
 
+    # 即时更新地区数据
     sync_arcade_data()
     await add_arcade_handler.send(f"成功添加\n机厅：{primary_keyword}\n地区：{region}")
 
@@ -515,7 +529,7 @@ async def handle_delete_arcade(bot: Bot, event: GroupMessageEvent):
     
     primary_keyword = args[0]
     region = args[1]
-
+    
     # 读取 JSON 文件
     try:
         with open(ARCADE_DATA_FILE, 'r', encoding='utf-8') as file:

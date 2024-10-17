@@ -17,6 +17,7 @@ __plugin_meta__ = PluginMetadata(
     description="本地机厅管理人数上报",
     usage="发送 机厅 help 查看帮助",
     type="application",
+    supported_adapters={"~onebot.v11"},
     homepage="https://github.com/Onimaimai/nonebot-plugin-jtj",
 )
 

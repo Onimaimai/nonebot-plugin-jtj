@@ -3,6 +3,10 @@ import os
 import re
 import random
 from nonebot import require
+from pathlib import Path
+
+require("nonebot_plugin_localstore")
+import nonebot_plugin_localstore as store
 from datetime import datetime
 from nonebot import on_message
 from nonebot import on_command
@@ -21,20 +25,16 @@ __plugin_meta__ = PluginMetadata(
     homepage="https://github.com/Onimaimai/nonebot-plugin-jtj",
 )
 
+plugin_data_dir: Path = store.get_plugin_data_dir()
 # 文件路径
-ARCADE_DATA_DIR = "data/jtj"
-ARCADE_DATA_FILE = os.path.join(ARCADE_DATA_DIR, "arcade_data.json")
-STATE_FILE = os.path.join(ARCADE_DATA_DIR, "state.json")
-GROUP_REGION_FILE = os.path.join(ARCADE_DATA_DIR, "group_region.json")
-
-# 确保数据文件夹存在
-os.makedirs(ARCADE_DATA_DIR, exist_ok=True)
+ARCADE_DATA_FILE: Path = store.get_plugin_data_file("arcade_data.json")
+STATE_FILE: Path = store.get_plugin_data_file("state.json")
+GROUP_REGION_FILE: Path = store.get_plugin_data_file("group_region.json")
 
 # 创建文件（如果不存在）
 for file_path in [ARCADE_DATA_FILE, STATE_FILE]:
-    if not os.path.exists(file_path):
-        with open(file_path, 'w') as f:
-            f.write('{}')
+    if not file_path.exists():
+        file_path.write_text('{}', encoding='utf-8')
             
 
 def load_arcade_data():
@@ -138,6 +138,31 @@ async def handle_resetall(bot: Bot, event: Event):
     await resetall_handler.send("所有机厅人数已重置")
     
             
+def read_state():
+    try:
+        with STATE_FILE.open('r', encoding='utf-8') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        STATE_FILE.write_text(json.dumps(EMPTY_STATE, ensure_ascii=False, indent=2), encoding='utf-8')
+        return EMPTY_STATE
+
+def save_state(arcades):
+    with STATE_FILE.open('w', encoding='utf-8') as file:
+        json.dump(arcades, file, ensure_ascii=False, indent=2)
+
+
+def read_group_region():
+    try:
+        with GROUP_REGION_FILE.open('r', encoding='utf-8') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}
+
+def save_group_region(group_region):
+    with GROUP_REGION_FILE.open('w', encoding='utf-8') as file:
+        json.dump(group_region, file, ensure_ascii=False, indent=2)
+
+
 def reset_state(region_name):
     updated_data = []
     
@@ -284,20 +309,6 @@ def update_arcade_people_count(message, user_nickname, arcade, keyword):
     arcade["updatedBy"] = user_nickname
     arcade["lastUpdatedAt"] = datetime.now().strftime("%H:%M:%S")
     return True  # 表示更新成功
-  
-
-def read_state():
-    try:
-        with open(STATE_FILE, 'r', encoding='utf-8') as file:
-            return json.load(file)
-    except FileNotFoundError:
-        with open(STATE_FILE, 'w', encoding='utf-8') as file:
-            json.dump(EMPTY_STATE, file, ensure_ascii=False, indent=2)
-        return EMPTY_STATE
-
-def save_state(arcades):
-    with open(STATE_FILE, 'w', encoding='utf-8') as file:
-        json.dump(arcades, file, ensure_ascii=False, indent=2)
         
         
 # 将新的机厅数据与已有的人数数据合并，并删除不在 arcade_data.json 中的机厅
@@ -371,19 +382,6 @@ async def handle_sync(bot: Bot, event: GroupMessageEvent):
 
     await sync_handler.send("机厅数据已更新！")
         
-        
-
-
-def read_group_region():
-    try:
-        with open(GROUP_REGION_FILE, 'r', encoding='utf-8') as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}
-
-def save_group_region(group_region):
-    with open(GROUP_REGION_FILE, 'w', encoding='utf-8') as file:
-        json.dump(group_region, file, ensure_ascii=False, indent=2)
 
 # 命令用于绑定地区
 bind_region_handler = on_command("绑定机厅", priority=10, block=True)

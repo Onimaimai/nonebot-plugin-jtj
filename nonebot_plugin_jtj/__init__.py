@@ -34,7 +34,7 @@ GROUP_REGION_FILE: Path = store.get_plugin_data_file("group_region.json")
 # 创建文件（如果不存在）
 for file_path in [ARCADE_DATA_FILE, STATE_FILE]:
     if not file_path.exists():
-        file_path.write_text('{}', encoding='utf-8')
+        file_path.write_text('[]', encoding='utf-8')
             
 
 def load_arcade_data():

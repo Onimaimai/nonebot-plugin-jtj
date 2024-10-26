@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-jtj"
-version = "0.1.6"
+version = "0.1.7"
 description = "本地机厅管理人数上报的 NoneBot 插件"
 readme = "README.md"
 

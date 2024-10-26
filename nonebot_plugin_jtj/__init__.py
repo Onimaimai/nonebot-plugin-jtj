@@ -509,7 +509,7 @@ async def handle_add_arcade(bot: Bot, event: GroupMessageEvent):
 
     # 即时更新地区数据
     sync_arcade_data()
-    await add_arcade_handler.send(f"成功添加\n机厅：{primary_keyword}\n地区：{region}")
+    await add_arcade_handler.send(f"成功添加\n机厅：{primary_keyword}\n地区：{region}\n简称：{keywords}")
 
     
     

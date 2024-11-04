@@ -275,9 +275,8 @@ async def handle_arcade(bot: Bot, event: GroupMessageEvent):
 
 
 def get_response(message, user_nickname, arcades, group_region):
-    
-    # 如果绑定了地区，过滤出绑定地区的机厅
     region_arcades = [arcade for arcade in arcades if arcade["region"] == group_region]
+    matching_arcades = []  # 用于存储匹配的机厅
 
     for arcade in region_arcades:
         for keyword in arcade["keywords"]:
@@ -287,7 +286,15 @@ def get_response(message, user_nickname, arcades, group_region):
                     save_state(arcades)
                     return f"更新成功！\n{arcade['primary_keyword']}\n当前：{arcade['peopleCount']}人"
                 elif keyword + "几" in message or keyword + "j" in message or keyword + "J" in message:
-                    return f"{arcade['primary_keyword']}\n当前：{arcade['peopleCount']}人\n\n上报：{arcade['updatedBy']}\n时间：{arcade['lastUpdatedAt']}"
+                    matching_arcades.append(arcade)  # 收集匹配的机厅
+                    
+    if matching_arcades:
+        # 发送所有匹配的机厅信息
+        responses = []
+        for arcade in matching_arcades:
+            responses.append(f"{arcade['primary_keyword']}\n当前：{arcade['peopleCount']}人\n\n上报：{arcade['updatedBy']}\n时间：{arcade['lastUpdatedAt']}")
+        return "\n\n".join(responses)
+                    
     return None
 
   

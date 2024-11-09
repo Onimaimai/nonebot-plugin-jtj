@@ -70,7 +70,7 @@ async def handle_help(bot: Bot, event: GroupMessageEvent):
         "删除简称<名称><地区><简称>\n"
         "解绑机厅\n"
         "随个机厅/去哪勤/勤哪/qn\n"
-        "机厅几/jtj/JTJ\n"
+        "机厅几/jtj/JTJ (可指定<地区>)\n"
         "<简称>几/j/J\n"
         "<简称>数字/+-数字\n"
         "重置人数"
@@ -223,15 +223,27 @@ jtj_handler = on_command("jtj", aliases={"机厅几","JTJ"}, priority=10, block=
 @jtj_handler.handle()
 async def handle_jtj(bot: Bot, event: GroupMessageEvent):
     group_id = event.group_id
-    group_region = read_group_region()
+    message = event.get_message().extract_plain_text().strip()
+
+    # 提取地区名，支持格式 jtj<地区> 或 别名<地区>
+    region_name = None
+    if message.startswith("jtj"):
+        region_name = message[3:].strip()  # 去掉“jtj”前缀
+    elif message.startswith("机厅几"):
+        region_name = message[4:].strip()  # 去掉“机厅几”前缀
+    elif message.startswith("JTJ"):
+        region_name = message[3:].strip()  # 去掉“JTJ”前缀
 
     # 检查群组是否有绑定地区
+    group_region = read_group_region()
     if str(group_id) not in group_region:
-        await jtj_handler.send("请发送：绑定机厅<地区>")
+        await jtj_handler.send("请发送：绑定机厅<地区> 或 指定地区，例如：jtj杭州\n不需要请发送：关闭机厅")
         return
     
-    region_name = group_region[str(group_id)]
-    
+    # 如果用户没有指定地区，则使用绑定的地区
+    if not region_name:
+        region_name = group_region[str(group_id)]
+
     # 从 state.json 中读取机厅数据
     arcades = read_state()
 
@@ -239,6 +251,8 @@ async def handle_jtj(bot: Bot, event: GroupMessageEvent):
     region_arcades = [arcade for arcade in arcades if arcade['region'] == region_name]
 
     if not region_arcades:
+        available_regions = get_all_regions()
+        region_list = "、".join(available_regions)
         await jtj_handler.send(f"未找到地区 {region_name} 的机厅数据")
         return
 
@@ -271,7 +285,9 @@ async def handle_arcade(bot: Bot, event: GroupMessageEvent):
     response = get_response(message, user_nickname, arcades, group_region)
     if response:
         await arcade_handler.send(response)
-    save_state(arcades)
+        save_state(arcades)
+    else:
+        return
 
 
 def get_response(message, user_nickname, arcades, group_region):
@@ -292,7 +308,7 @@ def get_response(message, user_nickname, arcades, group_region):
         # 发送所有匹配的机厅信息
         responses = []
         for arcade in matching_arcades:
-            responses.append(f"{arcade['primary_keyword']}\n当前：{arcade['peopleCount']}人\n\n上报：{arcade['updatedBy']}\n时间：{arcade['lastUpdatedAt']}")
+            responses.append(f"{arcade['primary_keyword']}\n当前：{arcade['peopleCount']}人\n上报：{arcade['updatedBy']}\n时间：{arcade['lastUpdatedAt']}")
         return "\n\n".join(responses)
                     
     return None

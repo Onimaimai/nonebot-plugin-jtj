@@ -13,7 +13,7 @@ from nonebot import on_command
 from nonebot import get_driver
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot, Event, MessageEvent, PrivateMessageEvent, MessageSegment
-from nonebot.rule import to_me
+from nonebot.rule import to_me, Rule
 
 SUPERUSERS = get_driver().config.superusers
 __plugin_meta__ = PluginMetadata(
@@ -24,6 +24,11 @@ __plugin_meta__ = PluginMetadata(
     supported_adapters={"~onebot.v11"},
     homepage="https://github.com/Onimaimai/nonebot-plugin-jtj",
 )
+
+# 定义规则函数，检查消息是否以“j”、“J”、“几”或数字结尾
+def ends_with_j_j_few_or_digit(event: GroupMessageEvent) -> bool:
+    message = event.get_message().extract_plain_text().strip()
+    return bool(re.search(r'(j|J|几|\d)$', message))
 
 plugin_data_dir: Path = store.get_plugin_data_dir()
 # 文件路径
@@ -271,7 +276,7 @@ def format_arcades_message(arcades, region):
     return "\n".join(message_lines)
     
   
-arcade_handler = on_message(priority=999)
+arcade_handler = on_message(rule=Rule(ends_with_j_j_few_or_digit), priority=1, block=False)
 @arcade_handler.handle()
 async def handle_arcade(bot: Bot, event: GroupMessageEvent):
     arcades = read_state()
@@ -286,8 +291,6 @@ async def handle_arcade(bot: Bot, event: GroupMessageEvent):
     if response:
         await arcade_handler.send(response)
         save_state(arcades)
-    else:
-        return
 
 
 def get_response(message, user_nickname, arcades, group_region):

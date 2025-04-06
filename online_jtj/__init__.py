@@ -657,11 +657,8 @@ async def handle_add_alias(event: GroupMessageEvent, matcher: Matcher, args: Mes
         await matcher.finish(f"未订阅ID为{shop_id}的机厅，请先订阅")
     
     # 检查机厅是否已经有这个简称
-    if alias in subs.shops[shop_id].aliases:
+    if alias in global_aliases.alias_to_ids:
         await matcher.finish(f"机厅 {shop_id} 已经有简称: {alias}")
-    
-    # 添加简称到机厅
-    subs.shops[shop_id].aliases.add(alias)
     
     # 添加到全局简称映射
     if alias not in global_aliases.alias_to_ids:
@@ -700,11 +697,8 @@ async def handle_remove_alias(event: GroupMessageEvent, matcher: Matcher, args: 
     if shop_id not in subs.shops:
         await matcher.finish(f"未订阅ID为{shop_id}的机厅")
     
-    if alias not in subs.shops[shop_id].aliases:
+    if alias not in global_aliases.alias_to_ids:
         await matcher.finish(f"机厅 {shop_id} 没有简称: {alias}")
-    
-    # 从机厅中删除简称
-    subs.shops[shop_id].aliases.remove(alias)
     
     # 从全局简称映射中删除
     if alias in global_aliases.alias_to_ids and shop_id in global_aliases.alias_to_ids[alias]:

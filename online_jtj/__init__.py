@@ -404,6 +404,13 @@ async def update_shop_number(shop_id: int, number: int, source: str) -> bool:
     """更新机厅人数"""
     try:
         async with httpx.AsyncClient() as client:
+            # 更新缓存
+            if shop_id in shop_cache.shop_data:
+                shop_cache.shop_data[shop_id]["shop_number"] = number
+                shop_cache.shop_data[shop_id]["shop_source"] = source
+                shop_cache.last_update[f"shop_{shop_id}"] = time.time()
+                save_shop_cache(shop_cache)
+                
             response = await client.get(
                 "https://api.wenuu.cn/maimai-report/Data/uploadData.php",
                 params={
@@ -415,16 +422,7 @@ async def update_shop_number(shop_id: int, number: int, source: str) -> bool:
                 timeout=10.0
             )
             response.raise_for_status()
-            
-            # 如果更新成功，同时更新缓存
-            if response.text.strip() == "数据更新成功":
-                if shop_id in shop_cache.shop_data:
-                    shop_cache.shop_data[shop_id]["shop_number"] = number
-                    shop_cache.shop_data[shop_id]["shop_source"] = source
-                    shop_cache.last_update[f"shop_{shop_id}"] = time.time()
-                    save_shop_cache(shop_cache)
-                return True
-            return False
+            return True
     except Exception as e:
         print(f"更新机厅人数失败: {str(e)}")
         # 接口失效时，只更新本地缓存

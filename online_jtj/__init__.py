@@ -16,12 +16,24 @@ import re
 import time
 from datetime import datetime
 import asyncio
+import matplotlib.pyplot as plt
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+import base64
+from collections import deque
 
 # 数据存储路径
 DATA_DIR = Path(__file__).parent / "data"
 DATA_FILE = DATA_DIR / "subscriptions.json"
 CACHE_FILE = DATA_DIR / "shop_cache.json"
 ALIAS_FILE = DATA_DIR / "aliases.json"
+RATE_LIMIT_FILE = DATA_DIR / "rate_limit.json"
+
+# 刷榜检测配置
+RATE_LIMIT_COUNT = 3  # 1分钟内允许的最大上报次数
+RATE_LIMIT_WINDOW = 60  # 时间窗口(秒)
+BAN_DURATION = 300  # 封禁时长(秒)
 
 def dataclass_from_dict(cls, data):
     return cls(**data)
@@ -30,25 +42,27 @@ __plugin_meta__ = PluginMetadata(
     name="机厅查询",
     description="查询和更新maimai机厅人数，支持简称和多种更新方式",
     usage="""指令：
-    jtj <城市> - 查询城市所有机厅
+    jtj <城市/简称/id> - 查询指定机厅
     jtj - 查询本群订阅的机厅
     订阅机厅 <id1> [id2]... - 订阅多个机厅(空格分隔)
     取消订阅 <id1> [id2]... - 取消订阅多个机厅(空格分隔)
     订阅城市 <城市> - 订阅指定城市的所有机厅
     取消订阅城市 <城市> - 取消订阅指定城市的所有机厅
-    申请机厅 <店名+添加/删除> <城市> - 申请添加或删除机厅
+    申请机厅 <添加/删除店名> <城市> - 申请添加或删除机厅
     添加简称 <id> <简称> - 为机厅添加简称
     删除简称 <id> <简称> - 删除机厅的简称
     查看简称 [id] - 查看所有简称或指定机厅的简称
     <简称><数字> - 直接更新人数(如:万达10)
     <简称>+<数字> - 增加人数(如:万达+2)
     <简称>-<数字> - 减少人数(如:万达-1)
-    """,
+    """
 )
 
 # 配置项
-API_KEY = "xxx"  # 替换为实际的API key
-SUPER_USER_ID = "123"  # 超级用户ID
+API_URL = "https://qy.wenuu.cn" #国内 "https://api.wenuu.cn" 
+API_KEY = ""  # 替换为实际的API key
+SUPER_USER_ID = "5359401"  # 审核用户ID
+SUPER_USER_ID2 = ""  # bot用户ID
 
 @dataclass
 class ShopInfo:
@@ -218,6 +232,7 @@ add_alias = on_command("添加简称", priority=10, block=True)
 remove_alias = on_command("删除简称", priority=10, block=True)
 list_aliases = on_command("查看简称", priority=10, block=True)
 apply_shop = on_command("申请机厅", priority=10, block=True)
+contribution_rank = on_command("jt贡献榜", aliases={"jt贡献排行", "jt上报排行", "jt上报榜"}, priority=10, block=True)
 
 # 规则函数：检测消息是否以已订阅的简称开头
 async def is_alias_command(event: MessageEvent) -> bool:
@@ -245,6 +260,19 @@ async def handle_alias_commands(bot: Bot, event: GroupMessageEvent, matcher: Mat
     text = event.get_plaintext().strip()
     group_id = event.group_id
     
+    # 1. 检查是否是 "数字简称+数字"（如 7772 → 777 + 2）
+    if text.isdigit() and len(text) >= 2:  # 至少 2 位才可能是数字简称+数字
+        # 找出所有可能的数字简称（从长到短尝试）
+        for alias_len in range(len(text) - 1, 0, -1):  # 从最长可能简称开始
+            alias_candidate = text[:alias_len]
+            remaining = text[alias_len:]
+            
+            # 检查是否是合法简称，且剩余部分是数字
+            if alias_candidate in global_aliases.alias_to_ids and remaining.isdigit():
+                update_parsed = (alias_candidate, int(remaining), "set")
+                await handle_update(bot, event, matcher, update_parsed)
+                return
+    
     # 找出匹配的最长简称（避免短简称误匹配）
     matched_alias = None
     for alias in sorted(global_aliases.alias_to_ids.keys(), key=len, reverse=True):
@@ -254,7 +282,7 @@ async def handle_alias_commands(bot: Bot, event: GroupMessageEvent, matcher: Mat
     
     if not matched_alias:
         return
-    
+    print(matched_alias)
     # 获取剩余部分（去掉简称后的内容）
     remaining = text[len(matched_alias):].strip()
     
@@ -310,10 +338,67 @@ async def handle_alias_query(event: GroupMessageEvent, matcher: Matcher, alias: 
     save_data(group_subscriptions)
     await matcher.send("\n\n".join(messages))
 
+def load_rate_limit_data() -> Dict[str, Dict[str, List[float]]]:
+    """加载速率限制数据"""
+    if not RATE_LIMIT_FILE.exists():
+        return {}
+    
+    try:
+        with open(RATE_LIMIT_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"加载速率限制数据失败: {str(e)}")
+        return {}
+
+def save_rate_limit_data(data: Dict[str, Dict[str, List[float]]]):
+    """保存速率限制数据"""
+    try:
+        with open(RATE_LIMIT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存速率限制数据失败: {str(e)}")
+
 async def handle_update(bot: Bot, event: GroupMessageEvent, matcher: Matcher, parsed: Tuple[str, int, str]):
     """处理人数更新"""
     alias, number_change, op_type = parsed
     group_id = event.group_id
+    user_id = event.get_user_id()
+    current_time = time.time()
+
+    # 加载速率限制数据
+    rate_limit_data = load_rate_limit_data()
+    
+    # 初始化用户数据
+    if str(group_id) not in rate_limit_data:
+        rate_limit_data[str(group_id)] = {}
+    if user_id not in rate_limit_data[str(group_id)]:
+        rate_limit_data[str(group_id)][user_id] = {"timestamps": [], "banned_until": 0}
+    
+    user_data = rate_limit_data[str(group_id)][user_id]
+    
+    # 检查是否被封禁
+    if current_time < user_data["banned_until"]:
+        remaining_time = int(user_data["banned_until"] - current_time)
+        await matcher.finish(f"操作过于频繁，请等待{remaining_time}秒后再试", reply_message=True)
+        return
+    
+    # 清理过期的时间戳(超过时间窗口)
+    user_data["timestamps"] = [
+        ts for ts in user_data["timestamps"] 
+        if current_time - ts <= RATE_LIMIT_WINDOW
+    ]
+    
+    # 检查是否超过速率限制
+    if len(user_data["timestamps"]) >= RATE_LIMIT_COUNT:
+        # 封禁用户
+        user_data["banned_until"] = current_time + BAN_DURATION
+        save_rate_limit_data(rate_limit_data)
+        await matcher.finish(f"操作过于频繁，请等待{BAN_DURATION}秒后再试", reply_message=True)
+        return
+    
+    # 记录当前时间戳
+    user_data["timestamps"].append(current_time)
+    save_rate_limit_data(rate_limit_data)
     
     # 获取所有使用该简称的机厅ID
     shop_ids = global_aliases.alias_to_ids.get(alias, [])
@@ -364,6 +449,48 @@ async def handle_update(bot: Bot, event: GroupMessageEvent, matcher: Matcher, pa
     success = await update_shop_number(target_shop_id, new_number, source)
     shop_info.last_number = new_number
     
+    # 检查是否被封禁，如果被封禁则不记录统计
+    if current_time < user_data["banned_until"]:
+        return
+    
+    # 记录上报统计
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open(DATA_DIR / "report_stats.json", "r", encoding="utf-8") as f:
+            stats = json.load(f)
+    except:
+        stats = {
+            "daily_stats": {},
+            "user_stats": {},
+            "last_update": 0
+        }
+    
+    # 更新每日统计
+    if today not in stats["daily_stats"]:
+        stats["daily_stats"][today] = {}
+    
+    if str(group_id) not in stats["daily_stats"][today]:
+        stats["daily_stats"][today][str(group_id)] = {}
+    
+    if user_id not in stats["daily_stats"][today][str(group_id)]:
+        stats["daily_stats"][today][str(group_id)][user_id] = 0
+    
+    stats["daily_stats"][today][str(group_id)][user_id] += 1
+    
+    # 更新用户统计
+    if user_id not in stats["user_stats"]:
+        stats["user_stats"][user_id] = {
+            "total": 0,
+            "nickname": user_nickname
+        }
+    
+    stats["user_stats"][user_id]["total"] += 1
+    stats["last_update"] = time.time()
+    
+    # 保存统计
+    with open(DATA_DIR / "report_stats.json", "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=2)
+    
     # 保存更新后的数据
     save_data(group_subscriptions) 
 
@@ -381,7 +508,7 @@ async def get_shop_by_id(shop_id: int) -> Optional[dict]:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                "https://api.wenuu.cn/maimai-report/Data/getData_solo.php",
+                f"{API_URL}/maimai-report/Data/getData_solo.php",
                 params={"id": shop_id},
                 timeout=10.0
             )
@@ -394,8 +521,8 @@ async def get_shop_by_id(shop_id: int) -> Optional[dict]:
                 shop_cache.last_update[f"shop_{shop_id}"] = time.time()
                 save_shop_cache(shop_cache)
                 return data
-            
             return None
+          
     except Exception as e:
         print(f"获取机厅信息失败: {str(e)}")
         return None
@@ -410,9 +537,9 @@ async def update_shop_number(shop_id: int, number: int, source: str) -> bool:
                 shop_cache.shop_data[shop_id]["shop_source"] = source
                 shop_cache.last_update[f"shop_{shop_id}"] = time.time()
                 save_shop_cache(shop_cache)
-                
+            
             response = await client.get(
-                "https://api.wenuu.cn/maimai-report/Data/uploadData.php",
+                f"{API_URL}/maimai-report/Data/uploadData.php",
                 params={
                     "id": shop_id,
                     "number": number,
@@ -423,6 +550,7 @@ async def update_shop_number(shop_id: int, number: int, source: str) -> bool:
             )
             response.raise_for_status()
             return True
+          
     except Exception as e:
         print(f"更新机厅人数失败: {str(e)}")
         # 接口失效时，只更新本地缓存
@@ -460,14 +588,14 @@ async def get_city_shops(city_name: str) -> Optional[List[dict]]:
     if city_name in shop_cache.city_shops:
         # 检查缓存是否过期（超过1小时）
         last_update = shop_cache.last_update.get(f"city_{city_name}", 0)
-        if time.time() - last_update < 3600:  # 1小时内的缓存有效
+        if time.time() - last_update < 300:  # 1小时内的缓存有效
             return shop_cache.city_shops[city_name]
     
     # 缓存不存在或已过期，从API获取
     try:
         async with httpx.AsyncClient() as client:
             city_response = await client.get(
-                "https://api.wenuu.cn/maimai-report/Query/queryCity.php",
+                f"{API_URL}/maimai-report/Query/queryCity.php",
                 params={"name": city_name},
                 timeout=10.0
             )
@@ -507,7 +635,7 @@ async def get_city_shops(city_name: str) -> Optional[List[dict]]:
                 return None
             
             shop_response = await client.get(
-                "https://api.wenuu.cn/maimai-report/Data/getData_city.php",
+                f"{API_URL}/maimai-report/Data/getData_city.php",
                 params={"cityid": city_id},
                 timeout=10.0
             )
@@ -594,17 +722,17 @@ async def handle_subscribe(event: GroupMessageEvent, matcher: Matcher, args: Mes
     
     results = []
     for shop_id in shop_ids:
+        shop_data = await get_shop_by_id(shop_id)
         if shop_id in subs.shops:
-            results.append(f"{shop_id}: 已订阅")
+            results.append(f"{shop_id}.{shop_data['shop_name']} - 已订阅")
             continue
         
-        shop_data = await get_shop_by_id(shop_id)
         if not shop_data:
-            results.append(f"{shop_id}: 机厅不存在")
+            results.append(f"{shop_id} - 机厅不存在")
             continue
         
         subs.shops[shop_id] = ShopInfo(id=shop_id)
-        results.append(f"{shop_id}: {shop_data['shop_name']} - 订阅成功")
+        results.append(f"{shop_id}.{shop_data['shop_name']} - 订阅成功")
     save_data(group_subscriptions)
     await matcher.finish("\n".join(results))
 
@@ -624,12 +752,13 @@ async def handle_unsubscribe(event: GroupMessageEvent, matcher: Matcher, args: M
     
     results = []
     for shop_id in shop_ids:
+        shop_data = await get_shop_by_id(shop_id)
         if shop_id not in subs.shops:
-            results.append(f"{shop_id}: 未订阅")
+            results.append(f"{shop_id}.{shop_data['shop_name']} - 未订阅")
             continue
         
         subs.shops.pop(shop_id)
-        results.append(f"{shop_id}: 取消订阅成功")
+        results.append(f"{shop_id}.{shop_data['shop_name']} - 取消订阅成功")
     save_data(group_subscriptions)
     await matcher.finish("\n".join(results))
 
@@ -653,15 +782,14 @@ async def handle_add_alias(event: GroupMessageEvent, matcher: Matcher, args: Mes
     
     if shop_id not in subs.shops:
         await matcher.finish(f"未订阅ID为{shop_id}的机厅，请先订阅")
-    
-    # 检查机厅是否已经有这个简称
-    if alias in global_aliases.alias_to_ids:
-        await matcher.finish(f"机厅 {shop_id} 已经有简称: {alias}")
-    
+        
     # 添加到全局简称映射
     if alias not in global_aliases.alias_to_ids:
         global_aliases.alias_to_ids[alias] = []
-    
+    # 检查机厅是否已经有这个简称
+    if shop_id in global_aliases.alias_to_ids[alias]:
+        await matcher.finish(f"机厅 {shop_id} 已经有简称: {alias}")
+        
     if shop_id not in global_aliases.alias_to_ids[alias]:
         global_aliases.alias_to_ids[alias].append(shop_id)
     
@@ -694,17 +822,16 @@ async def handle_remove_alias(event: GroupMessageEvent, matcher: Matcher, args: 
     
     if shop_id not in subs.shops:
         await matcher.finish(f"未订阅ID为{shop_id}的机厅")
-    
-    if alias not in global_aliases.alias_to_ids:
+    if shop_id not in global_aliases.alias_to_ids[alias]:
         await matcher.finish(f"机厅 {shop_id} 没有简称: {alias}")
-    
+        
     # 从全局简称映射中删除
     if alias in global_aliases.alias_to_ids and shop_id in global_aliases.alias_to_ids[alias]:
         global_aliases.alias_to_ids[alias].remove(shop_id)
         # 如果该简称没有关联任何机厅，则删除该简称
         if not global_aliases.alias_to_ids[alias]:
             global_aliases.alias_to_ids.pop(alias)
-    
+        
     save_data(group_subscriptions)
     save_global_aliases(global_aliases)
     
@@ -851,7 +978,8 @@ async def handle_jtj(event: GroupMessageEvent, matcher: Matcher, args: Message =
             try:
                 shop_id = shop.get('id', '未知ID')
                 shop_name = shop.get('shop_name', '未知机厅')
-                messages.append(f"{shop_id}.{shop_name}")
+                shop_num = shop.get('shop_number', '未知人数')
+                messages.append(f"{shop_id}.{shop_name}:{shop_num}人")
             except Exception as e:
                 print(f"处理机厅数据时出错: {str(e)}, 数据: {shop}")
         else:
@@ -907,6 +1035,7 @@ async def handle_apply_shop(bot:Bot, event: MessageEvent, matcher: Matcher, args
     
     # 转发给超级用户
     await bot.send_private_msg(user_id=SUPER_USER_ID, message=apply_info)
+    await bot.send_private_msg(user_id=SUPER_USER_ID2, message=apply_info)
     await matcher.finish("成功提交机厅申请，请等待审核",reply_message=True)
 
 @subscribe_city.handle()
@@ -1021,21 +1150,60 @@ async def update_cache_task():
                 for shop_id in subs.shops:
                     await get_shop_by_id(shop_id)
             
-            # 更新所有城市的缓存
-            # 这里需要先获取所有城市列表，然后更新每个城市的机厅
-            # 由于没有直接获取所有城市的API，这里先不实现
-            
             print("缓存数据更新完成")
             
             # 保存更新后的缓存
             save_shop_cache(shop_cache)
             
             # 每10分钟更新一次
-            await asyncio.sleep(600)
+            await asyncio.sleep(300)
         except Exception as e:
             print(f"更新缓存数据失败: {str(e)}")
             # 出错后等待5分钟再试
             await asyncio.sleep(300)
+
+
+@contribution_rank.handle()
+async def handle_contribution_rank(bot: Bot, event: GroupMessageEvent, matcher: Matcher):
+    """处理贡献榜命令"""
+    group_id = event.group_id
+    date = datetime.now().strftime("%Y-%m-%d")
+    
+    try:
+        # 加载统计数据
+        with open(DATA_DIR / "report_stats.json", "r", encoding="utf-8") as f:
+            stats = json.load(f)
+        
+        # 检查是否有当日数据
+        if date not in stats["daily_stats"] or str(group_id) not in stats["daily_stats"][date]:
+            await matcher.finish("今日暂无上报数据")
+            return
+            
+        group_stats = stats["daily_stats"][date][str(group_id)]
+        
+        # 获取用户昵称和上报次数
+        user_data = []
+        for user_id, count in group_stats.items():
+            nickname = stats["user_stats"].get(user_id, {}).get("nickname", "匿名用户").split("(")[0]
+            user_data.append((nickname, int(count)))
+        
+        # 按上报次数降序排序
+        user_data.sort(key=lambda x: x[1], reverse=True)
+        
+        # 生成文本格式的排行榜
+        if not user_data:
+            await matcher.finish("今日暂无上报数据")
+            return
+            
+        rank_text = f"【今日机厅上报榜】\n"
+        for i, (nickname, count) in enumerate(user_data[:10]):  # 只显示前10名
+            rank_text += f"{i+1} . {nickname}: {count}次\n"
+            
+        await matcher.send(rank_text.strip())
+        
+    except Exception as e:
+        pass
+        #await matcher.finish("生成贡献榜失败，请稍后再试")
 
 # 启动定时任务
 driver = get_driver()

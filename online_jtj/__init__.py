@@ -16,12 +16,6 @@ import re
 import time
 from datetime import datetime
 import asyncio
-import matplotlib.pyplot as plt
-from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont
-import numpy as np
-import base64
-from collections import deque
 
 # 数据存储路径
 DATA_DIR = Path(__file__).parent / "data"
@@ -59,10 +53,10 @@ __plugin_meta__ = PluginMetadata(
 )
 
 # 配置项
-API_URL = "https://qy.wenuu.cn" #国内 "https://api.wenuu.cn" 
+API_URL = "https://qy.wenuu.ch" #海外路线："https://qy.wenuu.cn" 
 API_KEY = ""  # 替换为实际的API key
-SUPER_USER_ID = "5359401"  # 审核用户ID
-SUPER_USER_ID2 = ""  # bot用户ID
+SUPER_USER_ID = ""  # 超级用户ID
+SUPER_USER_ID2 = ""  # 超级用户ID
 
 @dataclass
 class ShopInfo:
@@ -499,9 +493,8 @@ async def get_shop_by_id(shop_id: int) -> Optional[dict]:
     """根据机厅ID获取单个机厅信息"""
     # 先检查缓存
     if shop_id in shop_cache.shop_data:
-        # 检查缓存是否过期
         last_update = shop_cache.last_update.get(f"shop_{shop_id}", 0)
-        if time.time() - last_update < 3600:  # 缓存有效期
+        if time.time() - last_update < 60:  # 缓存有效期
             return shop_cache.shop_data[shop_id]
     
     # 缓存不存在或已过期，从API获取
@@ -544,7 +537,8 @@ async def update_shop_number(shop_id: int, number: int, source: str) -> bool:
                     "id": shop_id,
                     "number": number,
                     "source": source,
-                    "key": API_KEY
+                    "key": API_KEY,
+                    "uptime": int(time.time())
                 },
                 timeout=10.0
             )
@@ -586,9 +580,8 @@ async def get_city_shops(city_name: str) -> Optional[List[dict]]:
     """根据城市名获取该城市所有机厅信息"""
     # 先检查缓存
     if city_name in shop_cache.city_shops:
-        # 检查缓存是否过期（超过1小时）
         last_update = shop_cache.last_update.get(f"city_{city_name}", 0)
-        if time.time() - last_update < 300:  # 1小时内的缓存有效
+        if time.time() - last_update < 60:  
             return shop_cache.city_shops[city_name]
     
     # 缓存不存在或已过期，从API获取
@@ -916,14 +909,14 @@ async def handle_jtj(event: GroupMessageEvent, matcher: Matcher, args: Message =
                 predicted = shop_data.get("predicted_number", "无预测数据")
                 messages.append(
                     #f"ID：{shop_id}\n"
-                    f"{shop_data['shop_name']}({shop_id})\n"
+                    f"{shop_data.get('shop_name')}({shop_id})\n"
                     #f"简称：{aliases}\n"
                     f"当前：{shop_info.last_number} 人"
                     #f"预测人数：{predicted}\n"
                     #"--------------------"
                 )
         
-        await matcher.send("\n\n".join(messages))
+        await matcher.send("\n".join(messages))
         return
     
     # 检查是否是简称
@@ -1155,12 +1148,11 @@ async def update_cache_task():
             # 保存更新后的缓存
             save_shop_cache(shop_cache)
             
-            # 每10分钟更新一次
-            await asyncio.sleep(300)
+            await asyncio.sleep(60)
         except Exception as e:
             print(f"更新缓存数据失败: {str(e)}")
             # 出错后等待5分钟再试
-            await asyncio.sleep(300)
+            await asyncio.sleep(60)
 
 
 @contribution_rank.handle()

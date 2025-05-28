@@ -54,7 +54,7 @@ __plugin_meta__ = PluginMetadata(
 
 # 配置项
 API_URL = "https://qy.wenuu.ch" #海外路线："https://qy.wenuu.cn" 
-API_KEY = ""  # 替换为实际的API key
+API_KEY = ""  # 替换为实际的API key，需要可联系微信小程序“浙里有mai”的公众号或客服
 SUPER_USER_ID = ""  # 超级用户ID
 SUPER_USER_ID2 = ""  # 超级用户ID
 

@@ -28,6 +28,7 @@ _✨ NoneBot 机厅管理上报插件 ✨_
 这是一个基于JSON文件的 nonebot2 本地机厅管理人数上报插件
 
 已转为接入微信小程序“浙里有mai”项目API的在线版本具体见online分支
+
 也可以直接添加反向websocket客户端连接：ws://qiyork.xyz:55555/onebot/v11/ws
 
 ## 💿 安装

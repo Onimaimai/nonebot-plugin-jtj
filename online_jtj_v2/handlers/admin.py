@@ -17,10 +17,10 @@ from ..services.data_manager import DataManager
 from ..config.settings import SUPER_USER_ID, SUPER_USER_ID2, API_URL, API_KEY
 
 apply_shop = on_command("申请机厅", priority=10, block=True)
-add_shop_location = on_command("添加机厅", aliases={"新建机厅"}, priority=10, block=True)
+add_shop_location = on_command("添加机厅", priority=10, block=True)
 review_shop = on_command("审核机厅", priority=10, block=True)
 clear_review_shop = on_command("清空审核机厅", priority=10, block=True)
-silent_mode = on_command("机厅静默", aliases={"jt静默"}, priority=10, block=True, rule=to_me())
+silent_mode = on_command("静默模式", aliases={"静默"}, priority=10, block=True, rule=to_me())
 
 @silent_mode.handle()
 async def handle_silent_mode(event: GroupMessageEvent, matcher: Matcher, args: Message = CommandArg()):
@@ -147,50 +147,26 @@ async def _(bot: Bot, event: GroupMessageEvent, matcher: Matcher):
         "shop_name": str(shop_name),
         "shop_address": str(shop_address),
         "shop_city": str(city_id),
-        "key": API_KEY,
         "LON": str(lng),
         "LAT": str(lat),
-        "coin": "1"
+        "coin": "1",
+        "key": API_KEY
     }
     
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(api_url, params=params)
-            data = resp.json()
-            if "success" in data:
-                review_msg = f"收到机厅申请！\n店名：{shop_name}\n地址：{shop_address}\n城市：{city_name}\n请发送 审核机厅 处理！"
-                await bot.send_private_msg(user_id=SUPER_USER_ID, message=review_msg)
-                await bot.send_private_msg(user_id=SUPER_USER_ID2, message=review_msg)
-                await matcher.finish(f"添加机厅成功：请等待审核！")
-            elif "error" in data:
-                await matcher.finish(f"添加机厅失败：{data['error']}")
-            else:
-                await matcher.finish(f"添加机厅失败，未知返回：{data}")
-    except FinishedException:
-        pass
-    except Exception as e:
-        # API调用失败时，使用本地缓存
-        try:
-            new_shop = {
-                "id": int(time.time()),
-                "shop_name": shop_name,
-                "shop_address": shop_address,
-                "shop_city": city_id,
-                "LON": lng,
-                "LAT": lat,
-                "coin": "1",
-                "add_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            review_cache.pending_shops.append(new_shop)
-            review_cache.last_update = time.time()
-            DataManager.save_review_cache(review_cache)
-            
-            review_msg = f"收到机厅申请（本地缓存）！\n店名：{shop_name}\n地址：{shop_address}\n城市：{city_name}\n请发送 审核机厅 处理！"
-            await bot.send_private_msg(user_id=SUPER_USER_ID, message=review_msg)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(api_url, params=params)
+        text = resp.text.strip()
+        data = json.loads(text.split('}')[0] + '}')
+        print(data)
+        if "success" in data:
+            review_msg = f"收到机厅申请！\n店名：{shop_name}\n地址：{shop_address}\n城市：{city_name}\n请发送 审核机厅 处理！"
+            # await bot.send_private_msg(user_id=SUPER_USER_ID, message=review_msg)
             await bot.send_private_msg(user_id=SUPER_USER_ID2, message=review_msg)
-            await matcher.finish(f"添加机厅成功（本地缓存）：请等待审核！")
-        except Exception as cache_error:
-            await matcher.finish(f"添加机厅失败：{cache_error}")
+            await matcher.finish(f"添加机厅成功：请等待审核！")
+        elif "error" in data:
+            await matcher.finish(f"添加机厅失败：{data['error']}")
+        else:
+            await matcher.finish(f"添加机厅失败，未知返回：{data}")
 
 @review_shop.handle()
 async def _(bot: Bot, event: MessageEvent, matcher: Matcher):
@@ -198,34 +174,23 @@ async def _(bot: Bot, event: MessageEvent, matcher: Matcher):
     if user_id not in [SUPER_USER_ID, SUPER_USER_ID2]:
         await matcher.finish("无权限操作，仅超级用户可用。")
     
-    api_url = f"{API_URL}/maihere/location/pass.php"
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(api_url)
-            data = resp.json()
-            if not data or (isinstance(data, dict) and not data.get("data")):
-                # 尝试本地缓存
-                raise Exception("API无数据")
-            
-            review_list = data.get("data") if isinstance(data, dict) else data
-            if not review_list:
-                raise Exception("API无数据")
-            
-            msg = ["待审核机厅列表："]
-            for shop in review_list:
-                msg.append(f"ID: {shop.get('id')}\n店名: {shop.get('shop_name')}\n地址: {shop.get('shop_address')}\n")
-            await matcher.finish("\n".join(msg) + "\n请发送通过审核的机厅ID（数字）")
-            
-    except FinishedException:
-        pass
-    except Exception as e:
-        if not review_cache.pending_shops:
-            await matcher.finish("暂无待审核机厅。")
+    api_url = f"{API_URL}/maihere/location/get_review_shop.php"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(api_url)
+        data = resp.json()
+        if not data or (isinstance(data, dict) and not data.get("data")):
+            # 尝试本地缓存
+            raise Exception("API无数据")
         
-        msg = ["待审核机厅列表（本地缓存）："]
-        for shop in review_cache.pending_shops:
+        review_list = data.get("data") if isinstance(data, dict) else data
+        if not review_list:
+            raise Exception("API无数据")
+        
+        msg = ["待审核机厅列表："]
+        for shop in review_list:
             msg.append(f"ID: {shop.get('id')}\n店名: {shop.get('shop_name')}\n地址: {shop.get('shop_address')}\n")
-        await matcher.finish("\n".join(msg) + "\n请发送通过审核的机厅ID（数字）")
+        await matcher.send("\n".join(msg) + "\n请发送通过审核的机厅ID（数字）")
 
 @review_shop.got("wait_review_id")
 async def _(bot: Bot, event: MessageEvent, matcher: Matcher):
@@ -239,35 +204,18 @@ async def _(bot: Bot, event: MessageEvent, matcher: Matcher):
     api_url = f"{API_URL}/maihere/location/pass.php"
     params = {"pass": shop_id, "key": API_KEY}
     
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(api_url, params=params)
-            data = resp.json()
-            if "success" in data:
-                await matcher.finish(f"机厅ID {shop_id} 审核通过成功！")
-            elif "error" in data:
-                await matcher.finish(f"审核失败：{data['error']}")
-            else:
-                await matcher.finish(f"审核失败，未知返回：{data}")
-    except FinishedException:
-        pass
-    except Exception as e:
-        try:
-            shop_id_int = int(shop_id)
-            found_shop = None
-            for i, shop in enumerate(review_cache.pending_shops):
-                if shop.get('id') == shop_id_int:
-                    found_shop = review_cache.pending_shops.pop(i)
-                    break
-            
-            if found_shop:
-                review_cache.last_update = time.time()
-                DataManager.save_review_cache(review_cache)
-                await matcher.finish(f"机厅ID {shop_id} 审核通过成功（本地缓存）！")
-            else:
-                await matcher.finish(f"未找到ID为 {shop_id} 的待审核机厅")
-        except Exception as cache_error:
-            await matcher.finish(f"审核失败：{cache_error}")
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(api_url, params=params)
+        text = resp.text.strip()
+        data = json.loads(text.split('}')[0] + '}')
+        print(data)
+        if "success" in data:
+            await matcher.finish(f"机厅ID {shop_id} 审核通过成功！")
+        elif "error" in data:
+            await matcher.finish(f"审核失败：{data['error']}")
+        else:
+            await matcher.finish(f"审核失败，未知返回：{data}")
+
 
 @clear_review_shop.handle()
 async def _(bot: Bot, event: MessageEvent, matcher: Matcher):

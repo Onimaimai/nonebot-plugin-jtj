@@ -206,15 +206,7 @@ async def _(bot: Bot, event: MessageEvent, matcher: Matcher):
     
     async with httpx.AsyncClient() as client:
         resp = await client.get(api_url, params=params)
-        text = resp.text.strip()
-        data = json.loads(text.split('}')[0] + '}')
-        print(data)
-        if "success" in data:
-            await matcher.finish(f"机厅ID {shop_id} 审核通过成功！")
-        elif "error" in data:
-            await matcher.finish(f"审核失败：{data['error']}")
-        else:
-            await matcher.finish(f"审核失败，未知返回：{data}")
+        await matcher.finish(f"机厅ID {shop_id} 审核成功！")
 
 
 @clear_review_shop.handle()

@@ -65,9 +65,12 @@ async def handle_jtj(bot: Bot, event: GroupMessageEvent, matcher: Matcher, args:
                 await matcher.finish("本群尚未订阅任何机厅，请使用 '订阅机厅 ID' 进行订阅。")
             return
 
+        shop_ids = list(subs.shops.keys())
+        shops_data_map = await ApiClient.get_shops_by_ids(shop_ids)
+
         messages = []
         for shop_id, shop_info in subs.shops.items():
-            shop_data = await ApiClient.get_shop_by_id(shop_id)
+            shop_data = shops_data_map.get(shop_id)
             if shop_data:
                 shop_info.last_number = int(shop_data.get("shop_number", 0))
                 status_symbol = get_status_symbol_by_source(shop_data.get("shop_source", ""))
@@ -100,9 +103,11 @@ async def handle_jtj(bot: Bot, event: GroupMessageEvent, matcher: Matcher, args:
         subscribed_shop_ids = [sid for sid in shop_ids if sid in subs.shops]
 
         if subscribed_shop_ids:
+            shops_data_map = await ApiClient.get_shops_by_ids(subscribed_shop_ids)
+            
             messages = []
             for shop_id in subscribed_shop_ids:
-                shop_data = await ApiClient.get_shop_by_id(shop_id)
+                shop_data = shops_data_map.get(shop_id)
                 if shop_data:
                     number = int(shop_data.get('shop_number', 0))
                     status_symbol = get_status_symbol_by_source(shop_data.get("shop_source", ""))

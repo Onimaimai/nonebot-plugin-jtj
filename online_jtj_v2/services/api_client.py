@@ -54,6 +54,37 @@ class ApiClient:
         return None
 
     @staticmethod
+    async def get_shops_by_ids(shop_ids: List[int]) -> Dict[int, dict]:
+        """根据ID列表批量获取机厅信息"""
+        if not shop_ids:
+            return {}
+            
+        ids_str = ",".join(map(str, shop_ids))
+        data = await ApiClient._get("/maihere/query/getData.php", params={"ids": ids_str})
+        
+        result = {}
+        
+        # 成功获取数据
+        if isinstance(data, dict) and "shops" in data:
+            shops = data["shops"]
+            if isinstance(shops, list):
+                for shop in shops:
+                    if isinstance(shop, dict) and "id" in shop:
+                        sid = shop["id"]
+                        result[sid] = shop
+                        # 更新缓存
+                        shop_cache.shop_data[sid] = shop
+                        shop_cache.last_update[f"shop_{sid}"] = time.time()
+                DataManager.save_shop_cache(shop_cache)
+        else:
+            # API失败或是格式不对，尝试使用缓存
+            for sid in shop_ids:
+                if sid in shop_cache.shop_data:
+                    result[sid] = shop_cache.shop_data[sid]
+                    
+        return result
+
+    @staticmethod
     async def update_shop_number(shop_id: int, number: int, source: str) -> bool:
         """更新机厅人数"""
         # 乐观更新：先更新本地缓存，让用户立即看到反馈

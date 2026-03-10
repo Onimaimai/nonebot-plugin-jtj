@@ -41,31 +41,44 @@ async def handle_alias_commands(bot: Bot, event: GroupMessageEvent, matcher: Mat
     
     # 1. 优先尝试最长匹配原则
     matched_alias = None
+    # 特殊优先：如果消息以 j/几 结尾且去掉后是一个简称，
+    # 则优先按“简称 + j/几”处理，避免与更长简称冲突（如 q 与 qj）
+    if text.endswith("j") or text.endswith("几"):
+        alias_candidate = text[:-1].strip()
+        if alias_candidate and alias_candidate in global_aliases.alias_to_ids:
+            matched_alias = alias_candidate
+            remaining = text[len(matched_alias):].strip()
+            # 直接进入后续处理
+        else:
+            remaining = None
+    else:
+        remaining = None
     # 将简称按长度降序排列，确保匹配最长的前缀
     sorted_aliases = sorted(global_aliases.alias_to_ids.keys(), key=len, reverse=True)
     
-    for alias in sorted_aliases:
-        if text.startswith(alias):
-            # 检查剩余部分是否符合格式
-            remaining = text[len(alias):].strip()
-            # 可能的格式：
-            # 1. 纯数字 (万达10)
-            # 2. +/-数字 (万达+1)
-            # 3. j/几 (万达j)
-            # 4. 空 (如果是完全匹配简称，这里暂时不处理，除非有具体逻辑) 
-            
-            if remaining == 'j' or remaining == '几':
+    if matched_alias is None:
+        for alias in sorted_aliases:
+            if text.startswith(alias):
+                # 检查剩余部分是否符合格式
+                remaining = text[len(alias):].strip()
+                # 可能的格式：
+                # 1. 纯数字 (万达10)
+                # 2. +/-数字 (万达+1)
+                # 3. j/几 (万达j)
+                # 4. 空 (如果是完全匹配简称，这里暂时不处理，除非有具体逻辑) 
+                
+                if remaining == 'j' or remaining == '几':
+                    matched_alias = alias
+                    break
+                
+                if parse_update_command(alias + remaining):
+                    matched_alias = alias
+                    break
+                
+                # 特殊情况处理：如果简称本身就是数字结尾，可能会被误判
+                # 这里保持原逻辑：找到最长匹配的简称
                 matched_alias = alias
                 break
-            
-            if parse_update_command(alias + remaining):
-                matched_alias = alias
-                break
-            
-            # 特殊情况处理：如果简称本身就是数字结尾，可能会被误判
-            # 这里保持原逻辑：找到最长匹配的简称
-            matched_alias = alias
-            break
 
     if not matched_alias:
         # 尝试 "数字简称+数字" 的特殊回退逻辑 (如 7772 -> 777 + 2)

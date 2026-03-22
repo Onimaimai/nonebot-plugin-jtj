@@ -19,6 +19,7 @@ jtj = on_command("jtj", aliases={"查询机厅"}, priority=10, block=True)
 nearby_shops = on_command("附近机厅", priority=10, block=False)
 nearby_shops_map = on_command("机厅地图", aliases={"出勤地图"}, priority=9, block=False)
 contribution_rank = on_command("jt贡献榜", aliases={"jt贡献排行", "jt上报排行", "jt上报榜"}, priority=10, block=True)
+shop_route = on_command("出勤路线", aliases={"机厅路线"}, priority=10, block=True)
 
 # Cooldown dictionary for the map command
 user_last_map_time = {}
@@ -361,3 +362,96 @@ async def handle_contribution_rank(bot: Bot, event: GroupMessageEvent, matcher: 
         # 记录日志而不是直接吞掉异常
         print(f"贡献榜生成失败: {e}")
         await matcher.finish("生成贡献榜失败，请稍后再试。")
+
+@shop_route.handle()
+async def handle_shop_route(bot: Bot, event: GroupMessageEvent, matcher: Matcher, args: Message = CommandArg()):
+    """处理出勤路线查询命令"""
+    identifier = args.extract_plain_text().strip()
+    group_id = event.group_id
+
+    # 检查是否提供了机厅ID或简称
+    if not identifier:
+        await matcher.finish("请输入要查询的机厅ID或简称，例如：出勤路线 33 或 出勤路线 万达")
+
+    # 解析机厅ID
+    target_shop_id = None
+
+    # 1. 尝试作为数字ID解析
+    if identifier.isdigit():
+        target_shop_id = int(identifier)
+    else:
+        # 2. 尝试从简称查找
+        if identifier in global_aliases.alias_to_ids:
+            shop_ids = global_aliases.alias_to_ids[identifier]
+            subs = group_subscriptions[group_id]
+            # 优先选择本群已订阅的机厅
+            subscribed_shop_ids = [sid for sid in shop_ids if sid in subs.shops]
+            if subscribed_shop_ids:
+                target_shop_id = subscribed_shop_ids[0]
+            else:
+                target_shop_id = shop_ids[0]  # 使用第一个匹配的机厅
+        else:
+            await matcher.finish(f"未找到简称 '{identifier}' 对应的机厅，请确认简称是否正确或直接使用机厅ID。")
+
+    if target_shop_id is None:
+        await matcher.finish("无法确定目标机厅，请检查输入。")
+
+    # 获取机厅信息
+    shop_data = await ApiClient.get_shop_by_id(target_shop_id)
+    if not shop_data:
+        await matcher.finish(f"未找到ID为 {target_shop_id} 的机厅信息。")
+
+    shop_name = shop_data.get('shop_name', f'机厅{target_shop_id}')
+
+    # 保存机厅ID到matcher.state，供后续步骤使用
+    matcher.state["target_shop_id"] = target_shop_id
+    matcher.state["shop_name"] = shop_name
+
+    await matcher.send(f"请发送你的位置信息（点击+号 -> 位置），用于查询前往【{shop_name}】的路线。")
+
+@shop_route.got("location")
+async def handle_shop_route_location(bot: Bot, event: GroupMessageEvent, matcher: Matcher):
+    """处理位置信息并查询路线"""
+    lat = None
+    lng = None
+
+    # 解析位置消息
+    for msg in event.message:
+        if msg.type == "json":
+            try:
+                data = json.loads(msg.data['data'])
+                if 'meta' in data:
+                    meta = data['meta']
+                    loc = meta.get('Location.Search') or meta.get('location')
+                    if loc:
+                        lat = loc.get("lat")
+                        lng = loc.get("lng") or loc.get("lon")
+            except Exception:
+                pass
+        elif msg.type == "location":
+            lat = msg.data.get("lat")
+            lng = msg.data.get("lon")
+
+    if lat is None or lng is None:
+        await matcher.finish("无法获取位置信息，请确保发送的是【位置】消息。")
+
+    target_shop_id = matcher.state.get("target_shop_id")
+    shop_name = matcher.state.get("shop_name", f"机厅{target_shop_id}")
+
+    try:
+        # 调用API获取路线
+        route_text = await ApiClient.get_shop_route(target_shop_id, float(lat), float(lng))
+
+        if route_text:
+            # 使用合并转发消息发送路线
+            success = await send_forward_message(bot, event.group_id, [route_text], f"前往{shop_name}的路线")
+            if not success:
+                await matcher.finish(route_text)
+        else:
+            await matcher.finish(f"获取前往【{shop_name}】的路线失败，请稍后再试。")
+
+    except FinishedException:
+        pass
+    except Exception as e:
+        print(f"查询路线失败: {e}")
+        await matcher.finish(f"查询路线时出错: {str(e)}")

@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Union
 
 @dataclass
 class ShopInfo:
     id: int
-    last_number: int = 0
+    last_number: Union[int, str] = 0
 
     def to_dict(self):
         return {

@@ -73,7 +73,7 @@ async def handle_jtj(bot: Bot, event: GroupMessageEvent, matcher: Matcher, args:
         for shop_id, shop_info in subs.shops.items():
             shop_data = shops_data_map.get(shop_id)
             if shop_data:
-                shop_info.last_number = int(shop_data.get("shop_number", 0))
+                shop_info.last_number = shop_data.get("shop_number", "0")
                 status_symbol = get_status_symbol_by_source(shop_data.get("shop_source", ""))
                 
                 shop_name = shop_data.get('shop_name', f'机厅{shop_id}')
@@ -110,14 +110,14 @@ async def handle_jtj(bot: Bot, event: GroupMessageEvent, matcher: Matcher, args:
             for shop_id in subscribed_shop_ids:
                 shop_data = shops_data_map.get(shop_id)
                 if shop_data:
-                    number = int(shop_data.get('shop_number', 0))
+                    number = shop_data.get('shop_number', '0')
                     status_symbol = get_status_symbol_by_source(shop_data.get("shop_source", ""))
                     shop_name = shop_data.get('shop_name', f'机厅{shop_id}')
                     source = shop_data.get('shop_source', '未知')
-                    
+
                     messages.append(
                         f"{shop_name}({shop_id})\n"
-                        f"当前：{number} 人 {status_symbol}\n"
+                        f"当前：{number}\n"
                         f"来源：{source}"
                     )
             
@@ -141,14 +141,14 @@ async def handle_jtj(bot: Bot, event: GroupMessageEvent, matcher: Matcher, args:
         shop_data = await ApiClient.get_shop_by_id(shop_id)
         if should_send:
             if shop_data:
-                number = int(shop_data.get('shop_number', 0))
+                number = shop_data.get('shop_number', '0')
                 status_symbol = get_status_symbol_by_source(shop_data.get("shop_source", ""))
                 shop_name = shop_data.get('shop_name', f'机厅{shop_id}')
                 source = shop_data.get('shop_source', '未知')
-                
+
                 await matcher.finish(
                     f"{shop_name}({shop_id})\n"
-                    f"当前：{number} 人 {status_symbol}\n"
+                    f"当前：{number}\n"
                     f"来源：{source}"
                 )
             else:
@@ -172,11 +172,11 @@ async def handle_jtj(bot: Bot, event: GroupMessageEvent, matcher: Matcher, args:
             try:
                 shop_id = shop.get('id', '未知ID')
                 shop_name = shop.get('shop_name', '未知机厅')
-                shop_num = int(shop.get('shop_number', 0))
+                shop_num = shop.get('shop_number', '0')
                 status_symbol = get_status_symbol_by_source(shop.get('shop_source', ''))
-                
+
                 messages.append(
-                    f"{shop_name}({shop_id})\n{shop_num} 人 {status_symbol}"
+                    f"{shop_name}({shop_id})\n当前：{shop_num} {status_symbol}"
                 )
             except Exception:
                 continue

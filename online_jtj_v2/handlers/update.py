@@ -117,7 +117,7 @@ async def handle_alias_commands(bot: Bot, event: GroupMessageEvent, matcher: Mat
             if not shop_data:
                 continue
             
-            shop_info.last_number = int(shop_data.get("shop_number", 0))
+            shop_info.last_number = shop_data.get("shop_number", "0")
             status_symbol = get_status_symbol_by_source(shop_data.get("shop_source", ""))
             shop_name = shop_data.get('shop_name', f'机厅{shop_id}')
             source = shop_data.get('shop_source', '未知')
@@ -183,7 +183,12 @@ async def handle_update(bot: Bot, event: GroupMessageEvent, matcher: Matcher, pa
     if op_type == "set":
         new_number = number_change
     else:
-        new_number = shop_info.last_number + number_change
+        # 从字符串解析当前数值用于计算
+        try:
+            current_num = int(shop_info.last_number)
+        except (ValueError, TypeError):
+            current_num = 0
+        new_number = current_num + number_change
         new_number = max(0, new_number)
     
     if new_number > 50:
